@@ -1,0 +1,7 @@
+# build outputs and dependencies
+build/
+*.apk
+*.dex
+*.o
+*.so
+__pycache__/
