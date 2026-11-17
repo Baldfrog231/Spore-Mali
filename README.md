@@ -7,13 +7,17 @@ phone with the Vulkan 1.1 / DXVK 1.9.2b path.
 
 ## This build
 
-- Settings panel fits on one screen; Controls moved to a **More** page.
+- Settings panel fits on one screen; the movement stick button is now **Controls** on the **More** page.
+- Screen and Safe zone have an **Auto** option: the picture fills the window at its own ratio inside the system's
+  cutout and rounded corners. A manual ratio or margin applies after a restart, so it never corrupts the running
+  picture.
 - Picture returns correctly after leaving and returning to the app (DXVK recreates its Vulkan surface).
 - Touch layout editor: tap a control to select it, then drag the size bar under **Reset** right to grow, left to
   shrink (50-200%). Tap empty space to deselect. **Reset** clears positions and sizes.
 - Creature editor: double-tap and hold a part, drag it, release to place it.
 - Editor **Undo** / **Redo** buttons work (Ctrl+Z / Ctrl+Y sent over separate frames).
-- Cursor (touchpad) mode and direct mode both supported.
+- **Cursor** mode (renamed from Touchpad): dragging moves a pointer and a joystick in the bottom right corner nudges
+  it; **Direct** mode acts where the finger lands. Editors always use the cursor.
 
 ## Source
 

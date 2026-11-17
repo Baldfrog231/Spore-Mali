@@ -30,11 +30,11 @@ import java.util.Locale;
  * Touch controls for Spore, drawn over SDL's surface. The game is played with the mouse; touches become SDL mouse
  * input in one of two modes (settings):
  *   Direct:   the finger is the cursor. Tap = click, drag = left drag, long press = right click.
- *   Touchpad: a cursor on screen; dragging moves it, tap = click where it is, double tap and hold = left drag,
- *             long press = right click. Easier on Spore's small buttons.
+ *   Cursor:   a cursor on screen; dragging moves it, tap = click where it is, double tap and hold = left drag,
+ *             long press = right click, a joystick in the corner nudges it. Easier on Spore's small buttons.
  * In both: two fingers drag with the right button held (camera rotation), pinching turns the wheel (zoom).
  * A menu handle (draggable, so it can sit wherever the current stage leaves room) opens a row of buttons: Esc (the
- * game's menu, "back"), Cam (one-finger drags rotate the camera while on), WASD (the movement stick), Undo (Ctrl+Z, the
+ * game's menu, "back"), Cam (one-finger drags rotate the camera while on), Controls (the movement stick), Undo (Ctrl+Z, the
  * editors), the keyboard (names) and the gear: the settings panel. Engine settings (resolution, textures, frame limit, battery
  * saver) go to sporere.ini and apply on the next start; the rest apply at once.
  * Each stage gets its own layout (the game mode comes from libmain.so): creature: the WASD stick and ability keys 1-4;
@@ -54,6 +54,7 @@ public class SporeControls extends View {
     private static final int DOWN = MotionEvent.ACTION_DOWN, UP = MotionEvent.ACTION_UP, MOVE = MotionEvent.ACTION_MOVE;
     private static final long LONG_PRESS_MS = 500, LEFT_DELAY_MS = 60, DOUBLE_TAP_MS = 280;
     private static final int TEAL = 0xff40d6c8;
+    private static final int AUTO = -1;  // Screen and Safe zone: follow the window and the system's safe area
 
     private final float density;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), text = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -134,19 +135,32 @@ public class SporeControls extends View {
     // Off: the CPU prepares the next frame while the GPU draws (smoother on most phones); On: the game's own wait.
     private final Setting sGpuSync = new Setting("Wait for GPU", "Ждать GPU", "gpu_sync", OFF_ON, new int[] {0, 1}, 0,
             true, false);
-    // Full: the whole screen; 16:9: bars at the sides of a long phone; Safe area: clear of the camera cutout and the
-    // rounded corners, which cut off the menus' corners otherwise.
+    // Auto: the picture fills the window at its own aspect ratio (the system's safe area only, no letterbox);
+    // Full: the whole screen; the ratios letterbox the picture; Safe area keeps it clear of the cutout and corners.
+    // The surface is sized before the game's first frame, so a change applies on the next start.
     private final Setting sScreen = new Setting("Screen", "Экран", "screen_fit",
-            tr(new String[] {"Full", "16:9", "Safe area"}, new String[] {"Весь", "16:9", "Без углов"}),
-            new int[] {0, 1, 2}, 0, true, false);
+            tr(new String[] {"Auto", "Full", "16:9", "4:3", "16:10", "21:9", "Safe area"},
+               new String[] {"Авто", "Весь", "16:9", "4:3", "16:10", "21:9", "Без углов"}),
+            new int[] {AUTO, 0, 1, 3, 4, 5, 2}, AUTO, true, false);
+    // Extra margin inside every screen edge. Auto follows the system's own safe area (cutout, rounded corners);
+    // the dp values add a fixed margin. Tapping the row opens the frame editor instead of stepping values.
+    private final Setting sSafe = new Setting("Safe zone", "Безопасные края", "safe_zone",
+            new String[] {"Auto", "0", "8", "16", "24", "32", "40"},
+            new int[] {AUTO, 0, 8, 16, 24, 32, 40}, AUTO, false, false);
     private final Setting sShowFps = new Setting("Show FPS", "Показывать FPS", "ui_fps", OFF_ON, new int[] {0, 1}, 0,
             false, false);
+    // Cursor: the pointer (a virtual pointer moved by dragging or the corner joystick) is used in the editors only,
+    // where dragging parts needs precision; in the stages a touch acts where it lands. Direct: no cursor at all.
     private final Setting sMode = new Setting("Touch mode", "Касания", "ui_touchpad",
-            tr(new String[] {"Direct", "Touchpad"}, new String[] {"Прямые", "Тачпад"}), new int[] {0, 1}, 0, false,
+            tr(new String[] {"Direct", "Cursor"}, new String[] {"Прямые", "Курсор"}), new int[] {0, 1}, 0, false,
             false);
     private final Setting sSpeed = new Setting("Camera speed", "Скорость камеры", "ui_speed",
             tr(new String[] {"Slow", "Normal", "Fast"}, new String[] {"Медленно", "Обычно", "Быстро"}),
             new int[] {60, 100, 160}, 100, false, false);
+    // How far the touchpad cursor moves per finger drag, in percent of the drag (the camera keeps its own speed).
+    private final Setting sCursor = new Setting("Cursor speed", "Скорость курсора", "ui_cursor",
+            new String[] {"50%", "75%", "100%", "150%", "200%", "300%"}, new int[] {50, 75, 100, 150, 200, 300}, 100,
+            false, false);
     private final Setting sScale = new Setting("Button size", "Размер кнопок", "ui_scale",
             new String[] {"80%", "100%", "120%", "140%"}, new int[] {80, 100, 120, 140}, 100, false, false);
     private final Setting sAlpha = new Setting("Button opacity", "Видимость кнопок", "ui_alpha",
@@ -164,9 +178,9 @@ public class SporeControls extends View {
     // "More", so the panel stays short enough for the whole footer to fit on a phone's screen.
     private final Setting[] graphicsLeft = {sQuality, sResolution, sSharpen, sFps};
     private final Setting[] graphicsRight = {sGpuSync, sScreen, sShowFps};
-    private final Setting[] controlsSettings = {sLanguage, sMode, sSpeed, sScale, sAlpha, sVibrate};
+    private final Setting[] controlsSettings = {sLanguage, sVibrate, sSafe, sMode, sCursor, sSpeed, sScale, sAlpha};
     private final Setting[] settings = {sQuality, sResolution, sSharpen, sFps, sGpuSync, sScreen, sShowFps, sLanguage, sMode,
-            sSpeed, sScale, sAlpha, sVibrate};
+            sCursor, sSpeed, sScale, sAlpha, sVibrate, sSafe};
     private final RectF[] settingRects = new RectF[settings.length];
     private boolean engineChanged;
 
@@ -347,6 +361,7 @@ public class SporeControls extends View {
     };
 
     private void enterStage(Stage s) {
+        if (s != Stage.EDITOR) forceCursor = false;  // a new stage starts in direct touch again
         stage = s;
         rightTaps = false;
         boxArmed = false;
@@ -419,11 +434,35 @@ public class SporeControls extends View {
     }
 
     // ---- gesture state ----
-    private enum Mode { NONE, PENDING, LEFT_DRAG, CAM_DRAG, PAN, FLY, CURSOR, TWO_FINGER, BUTTON, PANEL, HANDLE, EDIT }
+    private enum Mode { NONE, PENDING, LEFT_DRAG, CAM_DRAG, PAN, FLY, CURSOR, TWO_FINGER, BUTTON, PANEL, HANDLE, EDIT, JOY }
     private Mode mode = Mode.NONE;
     private float downX, downY, lastX, lastY, lastMidX, lastMidY, lastSpan, wheelAccum;
     private float camX, camY;            // virtual pointer while rotating the camera (moves at the camera speed)
     private float cursorX = -1, cursorY;  // touchpad cursor
+    private boolean forceCursor;          // Cursor picked in a stage: the cursor comes back until the stage ends
+    private float joyDX, joyDY;           // the Cursor-mode corner joystick's knob offset
+    private final Runnable joyTick = new Runnable() {
+        @Override
+        public void run() {
+            if (mode != Mode.JOY) return;
+            float r = joyR() * 0.6f;
+            float dx = joyDX / r, dy = joyDY / r;
+            if (Math.abs(dx) < 0.12f) dx = 0;  // a parked thumb must not drift
+            if (Math.abs(dy) < 0.12f) dy = 0;
+            if (dx != 0 || dy != 0) {
+                if (cursorX < 0) {
+                    cursorX = getWidth() / 2f;
+                    cursorY = getHeight() / 2f;
+                }
+                float step = 760 * density * cursorSpeed() / 60f;  // px per tick at 60 Hz
+                cursorX = clamp(cursorX + dx * step, 0, getWidth() - 1);
+                cursorY = clamp(cursorY + dy * step, 0, getHeight() - 1);
+                mouse(0, MOVE, cursorX, cursorY);
+                invalidate();
+            }
+            handler.postDelayed(this, 16);
+        }
+    };
     private long lastTapTime;
     private boolean longPressFired, moved;
     private float clickX, clickY;
@@ -439,6 +478,13 @@ public class SporeControls extends View {
     private boolean panelMore;  // the settings panel shows its second page: the controls
     private final RectF panel = new RectF(), panelClose = new RectF(), panelSupport = new RectF(), panelGitHub = new RectF(),
             panelCloseBig = new RectF(), panelMoreButton = new RectF(), panelBack = new RectF();
+    // the safe-zone frame editor: margins in dp, dragged in from any edge or scaled with a pinch
+    private boolean safeEdit;
+    private int safeDp;
+    private float safeStartSpan;
+    private int safeStartDp;
+    private boolean safeDrag;
+    private final RectF safeDone = new RectF(), safeReset = new RectF();
     private final Runnable fpsTick = new Runnable() {
         @Override
         public void run() {
@@ -454,6 +500,12 @@ public class SporeControls extends View {
         super(context);
         density = getResources().getDisplayMetrics().density;
         prefs = context.getSharedPreferences("controls", Context.MODE_PRIVATE);
+        if (!prefs.getBoolean("auto_v3", false)) {
+            // the first build with Auto: the old manual values (a letterbox preset, a dragged safe margin) are
+            // undone once, so an update never starts with a shrunken or wrongly shaped picture
+            prefs.edit().putInt("safe_zone", AUTO).putBoolean("auto_v3", true).apply();
+            writeIni("screen_fit", AUTO);
+        }
         for (Setting s : settings) {
             if (s.codes != null) {
                 String code = readIniString(s.key, s.codes[0]).toLowerCase(java.util.Locale.ROOT);
@@ -466,11 +518,12 @@ public class SporeControls extends View {
         for (int i = 0; i < settingRects.length; ++i) settingRects[i] = new RectF();
         text.setColor(Color.WHITE);
         text.setTextAlign(Paint.Align.CENTER);
+        safeDp = prefs.getInt("safe_zone", AUTO);
         handleFx = prefs.getFloat("ui_handle_x", 0.5f);
         handleFy = prefs.getFloat("ui_handle_y", 0.0f);
         applyScreen(context);
         buttons.add(new Button("Esc", () -> key(KeyEvent.KEYCODE_ESCAPE)));
-        buttons.add(new Button("WASD", () -> {
+        buttons.add(new Button("Controls", () -> {
             if (stick == null) return;
             boolean show = stick.getVisibility() != View.VISIBLE;
             if (show) stick.setVisibility(View.VISIBLE);
@@ -555,21 +608,56 @@ public class SporeControls extends View {
         handler.postDelayed(() -> SDLActivity.onNativeKeyUp(KeyEvent.KEYCODE_CTRL_LEFT), 300);
     }
 
-    /** Sizes the game's surface for the Screen setting, before it is first laid out (the game starts at that size). */
+    /** Sizes the game's surface for the Screen and Safe zone settings, before it is first laid out. */
     private void applyScreen(Context context) {
-        if (sScreen.value() == 0 || !(context instanceof SporeActivity)) return;
+        if (!(context instanceof SporeActivity)) return;
         SporeActivity a = (SporeActivity) context;
         android.view.View surface = a.surface();
         if (surface == null) return;
-        android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
-        a.getWindowManager().getDefaultDisplay().getRealMetrics(dm);
+        android.util.DisplayMetrics dm = a.getResources().getDisplayMetrics();  // the window, not the panel
         int w = Math.max(dm.widthPixels, dm.heightPixels), h = Math.min(dm.widthPixels, dm.heightPixels);
+        int[] in = insetSafe(a);  // cutout, rounded corners: the system's own safe area
+        int left = in[0], top = in[1], right = in[2], bottom = in[3];
+        int mode = sScreen.value();
+        int availW = Math.max(1, w - left - right), availH = Math.max(1, h - top - bottom);
+        if (mode == 1 || mode >= 3) {
+            // a fixed aspect ratio: fitted into the safe area, the rest is left black on both sides
+            float ratio = mode == 1 ? 16f / 9f : mode == 3 ? 4f / 3f : mode == 4 ? 16f / 10f : 21f / 9f;
+            int fw = Math.round(availH * ratio), fh = availH;
+            if (fw > availW) {
+                fw = availW;
+                fh = Math.round(availW / ratio);
+            }
+            int bx = (availW - fw) / 2, by = (availH - fh) / 2;
+            left += bx;
+            right += bx;
+            top += by;
+            bottom += by;
+        } else if (mode == 2 && left == 0 && right == 0) {
+            left = right = Math.round(32 * density);  // no system insets to read: a small guess
+        }
+        if (safeDp != AUTO) {  // a fixed margin picked in the safe-zone editor (Auto adds nothing extra)
+            int safe = Math.round(safeDp * density);
+            left += safe;
+            right += safe;
+            top += safe;
+            bottom += safe;
+        }
+        android.widget.RelativeLayout.LayoutParams lp =
+                new android.widget.RelativeLayout.LayoutParams(w - left - right, h - top - bottom);
+        lp.leftMargin = left;
+        lp.topMargin = top;
+        surface.setLayoutParams(lp);
+        surfaceX = left;
+        surfaceY = top;
+        android.util.Log.i("sporere", "screen " + mode + " safe " + safeDp + ": " + (w - left - right) + "x"
+                + (h - top - bottom) + " at " + left + "," + top);
+    }
+
+    /** The system's safe insets: camera cutout plus rounded corners (0 when unknown). */
+    private static int[] insetSafe(SporeActivity a) {
         int left = 0, top = 0, right = 0, bottom = 0;
-        if (sScreen.value() == 1) {
-            int fw = Math.min(w, h * 16 / 9), fh = Math.min(h, w * 9 / 16);
-            left = right = (w - fw) / 2;
-            top = bottom = (h - fh) / 2;
-        } else if (android.os.Build.VERSION.SDK_INT >= 30) {
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
             android.view.WindowInsets in = a.getWindowManager().getCurrentWindowMetrics().getWindowInsets();
             android.view.DisplayCutout cut = in.getDisplayCutout();
             if (cut != null) {
@@ -586,16 +674,7 @@ public class SporeControls extends View {
                         radius(in, android.view.RoundedCorner.POSITION_BOTTOM_RIGHT)));
             }
         }
-        if (sScreen.value() == 2 && left == 0 && right == 0) left = right = Math.round(32 * density);  // a guess
-        android.widget.RelativeLayout.LayoutParams lp =
-                new android.widget.RelativeLayout.LayoutParams(w - left - right, h - top - bottom);
-        lp.leftMargin = left;
-        lp.topMargin = top;
-        surface.setLayoutParams(lp);
-        surfaceX = left;
-        surfaceY = top;
-        android.util.Log.i("sporere", "screen " + sScreen.value() + ": " + (w - left - right) + "x"
-                + (h - top - bottom) + " at " + left + "," + top);
+        return new int[] {left, top, right, bottom};
     }
 
     private static int radius(android.view.WindowInsets in, int pos) {
@@ -646,8 +725,36 @@ public class SporeControls extends View {
         return sSpeed.value() / 100f;
     }
 
+    /** Cursor cursor travel per finger drag (ui_cursor percent). */
+    private float cursorSpeed() {
+        return prefs.getInt("ui_cursor", 100) / 100f;
+    }
+
     private boolean touchpad() {
-        return sMode.value() == 1;
+        // The editors always use the cursor (precise part dragging). In the stages a touch acts where it lands, but
+        // picking "Cursor" in the settings brings the cursor back for the rest of that stage.
+        return sMode.value() == 1 && (stage == Stage.EDITOR || forceCursor);
+    }
+
+    /** The corner joystick: a second way to move the Cursor-mode pointer, sized and placed in the bottom right. */
+    private float joyR() {
+        return 46 * density;
+    }
+
+    private float joyCx() {
+        return getWidth() - joyR() - 16 * density;
+    }
+
+    private float joyCy() {
+        return getHeight() - joyR() - 16 * density;
+    }
+
+    private boolean joyVisible() {
+        return touchpad() && !menuOpen && !panelOpen && !editLayout && !safeEdit;
+    }
+
+    private boolean joyHit(float x, float y) {
+        return joyVisible() && Math.hypot(x - joyCx(), y - joyCy()) < joyR() * 1.35f;
     }
 
     // The keyboard types into the game through SDL's input connection (commitText, backspace, enter): without one
@@ -741,6 +848,10 @@ public class SporeControls extends View {
             onEditTouch(action, x, y);
             return true;
         }
+        if (safeEdit) {
+            safeTouch(e, action, x, y);
+            return true;
+        }
         if (action == MotionEvent.ACTION_DOWN) {
             longPressFired = false;
             moved = false;
@@ -760,6 +871,13 @@ public class SporeControls extends View {
             if (b != null) {
                 pressedButton = b;
                 mode = Mode.BUTTON;
+                return true;
+            }
+            if (joyHit(x, y)) {
+                mode = Mode.JOY;
+                joyDX = joyDY = 0;
+                handler.post(joyTick);
+                invalidate();
                 return true;
             }
             downX = lastX = x;
@@ -824,6 +942,7 @@ public class SporeControls extends View {
         }
         switch (action) {
             case MotionEvent.ACTION_POINTER_DOWN:
+                if (mode == Mode.JOY) return true;  // a second finger must not take the joystick over
                 if (e.getPointerCount() == 2) {
                     handler.removeCallbacks(leftDown);
                     handler.removeCallbacks(longPress);
@@ -870,6 +989,9 @@ public class SporeControls extends View {
                     panKeys(0, 0);
                 } else if (mode == Mode.FLY) {
                     mouse(0, UP, x, y);
+                } else if (mode == Mode.JOY) {
+                    handler.removeCallbacks(joyTick);
+                    joyDX = joyDY = 0;
                 }
                 if (!touchpad()) parkIfAtEdge(x, y);
                 dragPressed = false;
@@ -918,11 +1040,24 @@ public class SporeControls extends View {
                 break;
             }
             case CURSOR:
-                cursorX = clamp(cursorX + dx * speed(), 0, getWidth() - 1);
-                cursorY = clamp(cursorY + dy * speed(), 0, getHeight() - 1);
+                cursorX = clamp(cursorX + dx * cursorSpeed(), 0, getWidth() - 1);
+                cursorY = clamp(cursorY + dy * cursorSpeed(), 0, getHeight() - 1);
                 mouse(0, MOVE, cursorX, cursorY);
                 invalidate();
                 break;
+            case JOY: {
+                float r = joyR() * 0.6f;
+                float jx = x - joyCx(), jy = y - joyCy();
+                float d = (float) Math.hypot(jx, jy);
+                if (d > r) {
+                    jx = jx / d * r;
+                    jy = jy / d * r;
+                }
+                joyDX = jx;
+                joyDY = jy;
+                invalidate();
+                break;
+            }
             case PENDING:
                 if (moved) {
                     handler.removeCallbacks(leftDown);
@@ -931,8 +1066,8 @@ public class SporeControls extends View {
                 break;
             case LEFT_DRAG:
                 if (touchpad()) {
-                    cursorX = clamp(cursorX + dx * speed(), 0, getWidth() - 1);
-                    cursorY = clamp(cursorY + dy * speed(), 0, getHeight() - 1);
+                    cursorX = clamp(cursorX + dx * cursorSpeed(), 0, getWidth() - 1);
+                    cursorY = clamp(cursorY + dy * cursorSpeed(), 0, getHeight() - 1);
                     mouse(dragPressed ? LEFT : 0, MOVE, cursorX, cursorY);
                     invalidate();
                 } else {
@@ -1023,6 +1158,10 @@ public class SporeControls extends View {
             int i = java.util.Arrays.asList(settings).indexOf(s);
             RectF r = settingRects[i];
             if (!r.contains(x, y)) continue;
+            if (s == sSafe) {  // not a list of values: open the frame editor
+                startSafeEdit();
+                return true;
+            }
             // the value sits in the right part of the row between arrows: the left arrow steps back
             boolean back = x < r.right - r.width() * 0.22f && x > r.right - r.width() * 0.48f;
             int n = s.values.length;
@@ -1060,6 +1199,145 @@ public class SporeControls extends View {
         }
         if (s == sShowFps && s.value() == 1) handler.post(fpsTick);
         if ((s == sScale || s == sAlpha) && stick != null) stick.applyLayout();
+        if (s == sMode) {  // Cursor picked here: the cursor comes back even inside a stage
+            forceCursor = s.value() == 1;
+            if (forceCursor && cursorX < 0) {
+                cursorX = getWidth() / 2f;
+                cursorY = getHeight() / 2f;
+            }
+            invalidate();
+        }
+    }
+
+    // ---- safe-zone frame editor ----
+    private void startSafeEdit() {
+        panelOpen = false;
+        panelMore = false;
+        safeEdit = true;
+        safeDrag = false;
+        safeStartSpan = 0;
+        safeStartDp = previewSafeDp();
+        invalidate();
+    }
+
+    /** The frame the editor shows: the picked margin, or where the system's safe area is when on Auto. */
+    private int previewSafeDp() {
+        if (safeDp != AUTO) return safeDp;
+        if (!(getContext() instanceof SporeActivity)) return 0;
+        int[] in = insetSafe((SporeActivity) getContext());
+        int m = Math.max(Math.max(in[0], in[2]), Math.max(in[1], in[3]));
+        return Math.round(m / density);
+    }
+
+    /** The margin being previewed; nothing is resized until Done, so a wrong drag cannot corrupt the picture. */
+    private void setSafeDp(int dp) {
+        int max = Math.round(Math.min(getWidth(), getHeight()) * 0.25f / density);
+        safeDp = Math.max(0, Math.min(max, dp));
+        invalidate();
+    }
+
+    /** One finger drags the nearest screen edge (the frame follows inward), a pinch scales it. */
+    private void safeTouch(MotionEvent e, int action, float x, float y) {
+        if (action == MotionEvent.ACTION_DOWN) {
+            if (safeDone.contains(x, y)) {
+                prefs.edit().putInt("safe_zone", safeDp).apply();
+                // resizing the surface under a running swap chain leaves the picture in a corner: size it on start
+                android.widget.Toast.makeText(getContext(),
+                        ru() ? "Безопасные края применятся после перезапуска игры"
+                                : "Restart the game to apply the safe zone",
+                        android.widget.Toast.LENGTH_LONG).show();
+                safeEdit = false;
+                safeStartSpan = 0;
+                invalidate();
+                return;
+            }
+            if (safeReset.contains(x, y)) {
+                safeDp = AUTO;
+                invalidate();
+                return;
+            }
+            safeStartDp = previewSafeDp();
+            safeStartSpan = 0;
+            safeDrag = true;
+            return;
+        }
+        if (action == MotionEvent.ACTION_POINTER_DOWN) {
+            safeStartSpan = span(e);
+            safeStartDp = previewSafeDp();
+            return;
+        }
+        if (action == MotionEvent.ACTION_MOVE) {
+            if (e.getPointerCount() >= 2) {
+                // pinch out (zoom in) grows the picture, so the margin shrinks
+                if (safeStartSpan > 0) setSafeDp(safeStartDp - Math.round((span(e) - safeStartSpan) / (2 * density)));
+            } else if (safeDrag) {
+                // the margin is the distance to the nearest edge: drag that border inward or outward
+                float w = getWidth(), h = getHeight();
+                float m = Math.min(Math.min(x, w - x), Math.min(y, h - y));
+                setSafeDp(Math.round(m / density));
+            }
+            return;
+        }
+        if (action == MotionEvent.ACTION_POINTER_UP) {
+            safeStartSpan = 0;  // the remaining finger must not jump the frame
+            return;
+        }
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            safeDrag = false;
+            safeStartSpan = 0;
+        }
+    }
+
+    private void drawSafeEdit(Canvas c) {
+        float w = getWidth(), h = getHeight();
+        int s = Math.round(previewSafeDp() * density);
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(0x99000000);
+        c.drawRect(0, 0, w, s, fill);
+        c.drawRect(0, h - s, w, h, fill);
+        c.drawRect(0, s, s, h - s, fill);
+        c.drawRect(w - s, s, w, h - s, fill);
+        fill.setStyle(Paint.Style.STROKE);
+        fill.setStrokeWidth(3 * density);
+        fill.setColor(TEAL);
+        c.drawRect(new RectF(s, s, w - s, h - s), fill);
+        // the four edges can be grabbed; a pinch works anywhere
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(TEAL);
+        float hw = 34 * density, hh = 9 * density;
+        c.drawRoundRect(new RectF(w / 2 - hw, s - hh / 2, w / 2 + hw, s + hh / 2), hh / 2, hh / 2, fill);
+        c.drawRoundRect(new RectF(w / 2 - hw, h - s - hh / 2, w / 2 + hw, h - s + hh / 2), hh / 2, hh / 2, fill);
+        c.drawRoundRect(new RectF(s - hh / 2, h / 2 - hw, s + hh / 2, h / 2 + hw), hh / 2, hh / 2, fill);
+        c.drawRoundRect(new RectF(w - s - hh / 2, h / 2 - hw, w - s + hh / 2, h / 2 + hw), hh / 2, hh / 2, fill);
+        // title pill and the two buttons
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setTextSize(15 * density);
+        String title = (ru() ? "Безопасные края: " : "Safe zone: ") + (safeDp == AUTO ? "Auto" : safeDp + " dp");
+        String how = ru() ? "тяните край или сведите пальцы" : "drag an edge or pinch";
+        float tw = Math.max(text.measureText(title), text.measureText(how)) + 36 * density;
+        float top = 10 * density;
+        RectF pill = new RectF((w - tw) / 2, top, (w + tw) / 2, top + 50 * density);
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(0xf20b1626);
+        c.drawRoundRect(pill, 14 * density, 14 * density, fill);
+        text.setColor(Color.WHITE);
+        c.drawText(title, pill.centerX(), pill.top + 21 * density, text);
+        text.setTextSize(11 * density);
+        text.setColor(0xff8aa8b8);
+        c.drawText(how, pill.centerX(), pill.top + 38 * density, text);
+        float bw = 130 * density, bh = 40 * density, gap = 10 * density, by = h - 16 * density - bh;
+        float left = (w - bw * 2 - gap) / 2;
+        safeReset.set(left, by, left + bw, by + bh);
+        safeDone.set(safeReset.right + gap, by, safeReset.right + gap + bw, by + bh);
+        text.setTextSize(14 * density);
+        fill.setColor(0xff6a3a3a);
+        c.drawRoundRect(safeReset, 12 * density, 12 * density, fill);
+        fill.setColor(0xff1d7a6a);
+        c.drawRoundRect(safeDone, 12 * density, 12 * density, fill);
+        text.setColor(Color.WHITE);
+        c.drawText(ru() ? "Сброс" : "Reset", safeReset.centerX(), safeReset.centerY() + 5 * density, text);
+        c.drawText(ru() ? "Готово" : "Done", safeDone.centerX(), safeDone.centerY() + 5 * density, text);
+        text.setTextSize(14 * density);
     }
 
     // ---- layout editor ----
@@ -1349,8 +1627,10 @@ public class SporeControls extends View {
                 b.rect.setEmpty();
                 continue;
             }
-            b.rect.set(bx, by, bx + size, by + size);
-            boolean on = (b.label.equals("Cam") && camLock) || (b.label.equals("WASD") && wasd);
+            boolean controls = b.label.equals("Controls");
+            float bw = controls ? size * 1.75f : size;  // "Controls" needs the wider button to fit
+            b.rect.set(bx, by, bx + bw, by + size);
+            boolean on = (b.label.equals("Cam") && camLock) || (controls && wasd);
             fill.setStyle(Paint.Style.FILL);
             fill.setColor(on ? 0xd040d6c8 : 0xc00a1a2a);
             c.drawRoundRect(b.rect, 12 * density, 12 * density, fill);
@@ -1359,10 +1639,12 @@ public class SporeControls extends View {
             fill.setColor(TEAL);
             c.drawRoundRect(b.rect, 12 * density, 12 * density, fill);
             fill.setStyle(Paint.Style.FILL);
+            text.setTextSize((controls ? 11 : 14) * density);
             c.drawText(b.label, b.rect.centerX(), b.rect.centerY() + 5 * density, text);
-            bx += toLeft ? -(size + gap) : size + gap;
+            bx += toLeft ? -(bw + gap) : bw + gap;
         }
         drawActions(c, size, gap);
+        if (joyVisible()) drawJoy(c);
         float x = 8 * density;
         text.setColor(Color.WHITE);
         if (touchpad() && cursorX >= 0) {  // the touchpad cursor
@@ -1391,6 +1673,22 @@ public class SporeControls extends View {
         }
         if (editLayout) drawEditor(c);
         if (panelOpen) drawPanel(c);
+        if (safeEdit) drawSafeEdit(c);
+    }
+
+    /** The Cursor-mode joystick in the bottom right corner: the knob's offset from the center sets the speed. */
+    private void drawJoy(Canvas c) {
+        float r = joyR(), cx = joyCx(), cy = joyCy();
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(0x600a1a2a);
+        c.drawCircle(cx, cy, r, fill);
+        fill.setStyle(Paint.Style.STROKE);
+        fill.setStrokeWidth(2 * density);
+        fill.setColor(0x9040d6c8);
+        c.drawCircle(cx, cy, r, fill);
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(0xb040d6c8);
+        c.drawCircle(cx + joyDX, cy + joyDY, r * 0.4f, fill);
     }
 
     /** The stage's action buttons, each in its layout slot (sized and faded per the settings). */
@@ -1430,12 +1728,16 @@ public class SporeControls extends View {
         float row = 36 * density, rowGap = 6 * density, pad = 16 * density, header = 56 * density;
         float section = 26 * density, footer = 62 * density;
         Setting[][] cols = panelMore
-                ? new Setting[][] {{sLanguage, sVibrate}, {sMode, sSpeed, sScale, sAlpha}}
+                ? new Setting[][] {{sLanguage, sVibrate, sSafe}, {sMode, sCursor, sSpeed, sScale, sAlpha}}
                 : new Setting[][] {graphicsLeft, graphicsRight};
         String[] titles = panelMore
                 ? new String[] {ru() ? "ОБЩИЕ" : "GENERAL", ru() ? "КАСАНИЯ" : "TOUCH"}
                 : new String[] {ru() ? "ГРАФИКА" : "GRAPHICS", ""};
         int rows = Math.max(cols[0].length, cols[1].length);
+        if (rows > 4) {  // the controls page has five rows: shorten them so the footer still fits
+            row = 32 * density;
+            rowGap = 5 * density;
+        }
         float h = header + section + rows * (row + rowGap) + footer;
         float left = (getWidth() - w) / 2, top = Math.max(6 * density, (getHeight() - h) / 2);
         panel.set(left, top, left + w, top + h);
@@ -1484,7 +1786,7 @@ public class SporeControls extends View {
                 text.setTextAlign(Paint.Align.LEFT);
                 text.setTextSize(13 * density);
                 text.setColor(Color.WHITE);
-                c.drawText(s.label() + (s.engine ? " *" : ""), rect.left + 12 * density, rect.centerY() + 5 * density,
+                c.drawText(s.label() + (s.engine || s == sSafe ? " *" : ""), rect.left + 12 * density, rect.centerY() + 5 * density,
                         text);
                 // ‹ value ›
                 float vz = rect.width() * 0.48f, vl = rect.right - vz, mid = rect.right - vz / 2;
@@ -1495,7 +1797,8 @@ public class SporeControls extends View {
                 c.drawText("›", rect.right - 12 * density, rect.centerY() + 6 * density, text);
                 text.setColor(TEAL);
                 text.setTextSize(13 * density);
-                c.drawText(s.names[s.index], mid, rect.centerY() + 5 * density, text);
+                c.drawText(s == sSafe ? (safeDp == AUTO ? "Auto" : safeDp + " dp") : s.names[s.index], mid,
+                        rect.centerY() + 5 * density, text);
                 y += row + rowGap;
             }
         }
