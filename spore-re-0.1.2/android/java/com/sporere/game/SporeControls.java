@@ -161,6 +161,9 @@ public class SporeControls extends View {
     private final Setting sCursor = new Setting("Cursor speed", "Скорость курсора", "ui_cursor",
             new String[] {"50%", "75%", "100%", "150%", "200%", "300%"}, new int[] {50, 75, 100, 150, 200, 300}, 100,
             false, false);
+    // How fast the corner joystick pushes the cursor while it is held.
+    private final Setting sJoy = new Setting("Joystick speed", "Скорость джойстика", "ui_joy",
+            new String[] {"50%", "75%", "100%", "150%", "200%"}, new int[] {50, 75, 100, 150, 200}, 100, false, false);
     private final Setting sScale = new Setting("Button size", "Размер кнопок", "ui_scale",
             new String[] {"80%", "100%", "120%", "140%"}, new int[] {80, 100, 120, 140}, 100, false, false);
     private final Setting sAlpha = new Setting("Button opacity", "Видимость кнопок", "ui_alpha",
@@ -180,7 +183,7 @@ public class SporeControls extends View {
     private final Setting[] graphicsRight = {sGpuSync, sScreen, sShowFps};
     private final Setting[] controlsSettings = {sLanguage, sVibrate, sSafe, sMode, sCursor, sSpeed, sScale, sAlpha};
     private final Setting[] settings = {sQuality, sResolution, sSharpen, sFps, sGpuSync, sScreen, sShowFps, sLanguage, sMode,
-            sCursor, sSpeed, sScale, sAlpha, sVibrate, sSafe};
+            sCursor, sJoy, sSpeed, sScale, sAlpha, sVibrate, sSafe};
     private final RectF[] settingRects = new RectF[settings.length];
     private boolean engineChanged;
 
@@ -197,7 +200,8 @@ public class SporeControls extends View {
     private String editing;   // the element being dragged
     private String selected;  // the element picked in the editor; its size bar is shown
     private boolean resizing; // the size bar is being dragged
-    private final RectF editDone = new RectF(), editReset = new RectF(), editSizeBar = new RectF();
+    private final RectF editDone = new RectF(), editReset = new RectF(), editSizeBar = new RectF(),
+            editJoyToggle = new RectF();
     private final RectF panelLayout = new RectF();
     private static final float SIZE_MIN = 0.5f, SIZE_MAX = 2f;
 
@@ -454,7 +458,7 @@ public class SporeControls extends View {
                     cursorX = getWidth() / 2f;
                     cursorY = getHeight() / 2f;
                 }
-                float step = 760 * density * cursorSpeed() / 60f;  // px per tick at 60 Hz
+                float step = 760 * density * joySpeed() / 60f;  // px per tick at 60 Hz
                 cursorX = clamp(cursorX + dx * step, 0, getWidth() - 1);
                 cursorY = clamp(cursorY + dy * step, 0, getHeight() - 1);
                 mouse(0, MOVE, cursorX, cursorY);
@@ -738,19 +742,27 @@ public class SporeControls extends View {
 
     /** The corner joystick: a second way to move the Cursor-mode pointer, sized and placed in the bottom right. */
     private float joyR() {
-        return 46 * density;
+        return 46 * density * scale() * sizeOf("joy");
     }
 
     private float joyCx() {
-        return getWidth() - joyR() - 16 * density;
+        return layX("joy", 0.93f) * getWidth();
     }
 
     private float joyCy() {
-        return getHeight() - joyR() - 16 * density;
+        return layY("joy", 0.81f) * getHeight();
+    }
+
+    private boolean joyHidden() {
+        return !prefs.getBoolean("ui_joy_show", true);  // hidden from the layout, still shown red in the editor
+    }
+
+    private float joySpeed() {
+        return prefs.getInt("ui_joy", 100) / 100f;
     }
 
     private boolean joyVisible() {
-        return touchpad() && !menuOpen && !panelOpen && !editLayout && !safeEdit;
+        return touchpad() && !joyHidden() && !menuOpen && !panelOpen && !editLayout && !safeEdit;
     }
 
     private boolean joyHit(float x, float y) {
@@ -1372,6 +1384,8 @@ public class SporeControls extends View {
             out.add(new Object[] {SLOT_IDS[i], layX(SLOT_IDS[i], SLOT_DEFAULTS[i][0]) * w,
                     layY(SLOT_IDS[i], SLOT_DEFAULTS[i][1]) * h, 29 * density * sc * sizeOf(SLOT_IDS[i]), label});
         }
+        out.add(new Object[] {"joy", layX("joy", 0.93f) * w, layY("joy", 0.81f) * h, joyR(),
+                ru() ? "Джойстик" : "Joystick"});
         return out;
     }
 
@@ -1386,11 +1400,18 @@ public class SporeControls extends View {
             if (editReset.contains(x, y)) {
                 SharedPreferences.Editor e = prefs.edit();
                 for (String k : prefs.getAll().keySet()) if (k.startsWith("lay_")) e.remove(k);
-                e.putFloat("ui_handle_x", 0.5f).putFloat("ui_handle_y", 0f).apply();
+                e.putFloat("ui_handle_x", 0.5f).putFloat("ui_handle_y", 0f).putBoolean("ui_joy_show", true).apply();
                 handleFx = 0.5f;
                 handleFy = 0f;
                 selected = null;
                 buzz(HapticFeedbackConstants.LONG_PRESS);
+                invalidate();
+                return;
+            }
+            // the picked joystick can be hidden from the layout (it stays here, red, to bring it back)
+            if ("joy".equals(selected) && editJoyToggle.contains(x, y)) {
+                prefs.edit().putBoolean("ui_joy_show", joyHidden()).apply();
+                buzz(HapticFeedbackConstants.VIRTUAL_KEY);
                 invalidate();
                 return;
             }
@@ -1456,12 +1477,13 @@ public class SporeControls extends View {
         for (Object[] el : editElements()) {
             float x = (float) el[1], y = (float) el[2], r = (float) el[3];
             boolean active = el[0].equals(selected);
+            boolean hidden = el[0].equals("joy") && joyHidden();
             fill.setStyle(Paint.Style.FILL);
-            fill.setColor(active ? 0xc040d6c8 : 0x900a1a2a);
+            fill.setColor(active ? 0xc040d6c8 : hidden ? 0xa06a2a2a : 0x900a1a2a);
             c.drawCircle(x, y, r, fill);
             fill.setStyle(Paint.Style.STROKE);
             fill.setStrokeWidth(2 * density);
-            fill.setColor(TEAL);
+            fill.setColor(hidden ? 0xffff5a5a : TEAL);
             c.drawCircle(x, y, r, fill);
             text.setColor(Color.WHITE);
             text.setTextSize(14 * density);
@@ -1507,6 +1529,20 @@ public class SporeControls extends View {
             text.setColor(Color.WHITE);
             c.drawText((ru() ? "Размер" : "Size") + " " + Math.round(sizeOf(selected) * 100) + "%",
                     editSizeBar.centerX(), editSizeBar.bottom + 17 * density, text);
+            if ("joy".equals(selected)) {
+                // hide the joystick from the layout, or bring it back; in the editor it stays, red when hidden
+                float tw2 = 110 * density, th2 = 36 * density;
+                float tx2 = editSizeBar.centerX() - tw2 / 2;
+                float ty2 = editSizeBar.bottom + 32 * density;  // under the size, away from the other controls
+                editJoyToggle.set(tx2, ty2, tx2 + tw2, ty2 + th2);
+                fill.setStyle(Paint.Style.FILL);
+                fill.setColor(joyHidden() ? 0xff1d7a6a : 0xff6a3a3a);
+                c.drawRoundRect(editJoyToggle, 12 * density, 12 * density, fill);
+                text.setTextSize(13 * density);
+                text.setColor(Color.WHITE);
+                c.drawText(joyHidden() ? (ru() ? "Вернуть" : "Restore") : (ru() ? "Скрыть" : "Hide"),
+                        editJoyToggle.centerX(), editJoyToggle.centerY() + 5 * density, text);
+            }
         } else {
             text.setTextSize(13 * density);
             text.setColor(0xffc8d8e8);
@@ -1728,7 +1764,7 @@ public class SporeControls extends View {
         float row = 36 * density, rowGap = 6 * density, pad = 16 * density, header = 56 * density;
         float section = 26 * density, footer = 62 * density;
         Setting[][] cols = panelMore
-                ? new Setting[][] {{sLanguage, sVibrate, sSafe}, {sMode, sCursor, sSpeed, sScale, sAlpha}}
+                ? new Setting[][] {{sLanguage, sVibrate, sSafe, sJoy}, {sMode, sCursor, sSpeed, sScale, sAlpha}}
                 : new Setting[][] {graphicsLeft, graphicsRight};
         String[] titles = panelMore
                 ? new String[] {ru() ? "ОБЩИЕ" : "GENERAL", ru() ? "КАСАНИЯ" : "TOUCH"}
