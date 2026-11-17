@@ -162,8 +162,9 @@ public class SporeControls extends View {
             new String[] {"50%", "75%", "100%", "150%", "200%", "300%"}, new int[] {50, 75, 100, 150, 200, 300}, 100,
             false, false);
     // How fast the corner joystick pushes the cursor while it is held.
-    private final Setting sJoy = new Setting("Joystick speed", "Скорость джойстика", "ui_joy",
-            new String[] {"50%", "75%", "100%", "150%", "200%"}, new int[] {50, 75, 100, 150, 200}, 100, false, false);
+    private final Setting sJoy = new Setting("Cursor joystick sensitivity", "Чувствительность джойстика курсора",
+            "ui_joy", new String[] {"50%", "75%", "100%", "150%", "200%"}, new int[] {50, 75, 100, 150, 200}, 100,
+            false, false);
     private final Setting sScale = new Setting("Button size", "Размер кнопок", "ui_scale",
             new String[] {"80%", "100%", "120%", "140%"}, new int[] {80, 100, 120, 140}, 100, false, false);
     private final Setting sAlpha = new Setting("Button opacity", "Видимость кнопок", "ui_alpha",
@@ -201,7 +202,7 @@ public class SporeControls extends View {
     private String selected;  // the element picked in the editor; its size bar is shown
     private boolean resizing; // the size bar is being dragged
     private final RectF editDone = new RectF(), editReset = new RectF(), editSizeBar = new RectF(),
-            editJoyToggle = new RectF();
+            editHide = new RectF();
     private final RectF panelLayout = new RectF();
     private static final float SIZE_MIN = 0.5f, SIZE_MAX = 2f;
 
@@ -754,7 +755,17 @@ public class SporeControls extends View {
     }
 
     private boolean joyHidden() {
-        return !prefs.getBoolean("ui_joy_show", true);  // hidden from the layout, still shown red in the editor
+        return hiddenOf("joy");  // hidden from the layout, still shown red in the editor
+    }
+
+    /** A control hidden from the game by the layout editor; it stays in the editor, red, to be restored. */
+    private boolean hiddenOf(String id) {
+        return "joy".equals(id) ? !prefs.getBoolean("ui_joy_show", true) : prefs.getBoolean("ui_hide_" + id, false);
+    }
+
+    private void setHidden(String id, boolean hide) {
+        if ("joy".equals(id)) prefs.edit().putBoolean("ui_joy_show", !hide).apply();
+        else prefs.edit().putBoolean("ui_hide_" + id, hide).apply();
     }
 
     private float joySpeed() {
@@ -1399,7 +1410,8 @@ public class SporeControls extends View {
             }
             if (editReset.contains(x, y)) {
                 SharedPreferences.Editor e = prefs.edit();
-                for (String k : prefs.getAll().keySet()) if (k.startsWith("lay_")) e.remove(k);
+                for (String k : prefs.getAll().keySet())
+                    if (k.startsWith("lay_") || k.startsWith("ui_hide_")) e.remove(k);
                 e.putFloat("ui_handle_x", 0.5f).putFloat("ui_handle_y", 0f).putBoolean("ui_joy_show", true).apply();
                 handleFx = 0.5f;
                 handleFy = 0f;
@@ -1408,11 +1420,13 @@ public class SporeControls extends View {
                 invalidate();
                 return;
             }
-            // the picked joystick can be hidden from the layout (it stays here, red, to bring it back)
-            if ("joy".equals(selected) && editJoyToggle.contains(x, y)) {
-                prefs.edit().putBoolean("ui_joy_show", joyHidden()).apply();
-                buzz(HapticFeedbackConstants.VIRTUAL_KEY);
-                invalidate();
+            // Hide/Restore the picked control: hidden ones stay here, red, until brought back
+            if (editHide.contains(x, y)) {
+                if (selected != null && !"handle".equals(selected)) {
+                    setHidden(selected, !hiddenOf(selected));
+                    buzz(HapticFeedbackConstants.VIRTUAL_KEY);
+                    invalidate();
+                }
                 return;
             }
             // the size bar under the picked control: drag right to grow it, left to shrink it
@@ -1477,36 +1491,38 @@ public class SporeControls extends View {
         for (Object[] el : editElements()) {
             float x = (float) el[1], y = (float) el[2], r = (float) el[3];
             boolean active = el[0].equals(selected);
-            boolean hidden = el[0].equals("joy") && joyHidden();
+            boolean hidden = hiddenOf((String) el[0]);
             fill.setStyle(Paint.Style.FILL);
-            fill.setColor(active ? 0xc040d6c8 : hidden ? 0xa06a2a2a : 0x900a1a2a);
+            fill.setColor(hidden ? 0xffc62828 : active ? 0xc040d6c8 : 0x900a1a2a);
             c.drawCircle(x, y, r, fill);
             fill.setStyle(Paint.Style.STROKE);
-            fill.setStrokeWidth(2 * density);
-            fill.setColor(hidden ? 0xffff5a5a : TEAL);
+            fill.setStrokeWidth((hidden ? 4 : 2) * density);
+            fill.setColor(hidden || active ? 0xffff5a5a : TEAL);
             c.drawCircle(x, y, r, fill);
             text.setColor(Color.WHITE);
             text.setTextSize(14 * density);
             c.drawText((String) el[4], x, y + 5 * density, text);
         }
-        // the bar: what to do, Done and Reset
+        // the bar: Hide/Restore the picked control, Reset, Done (the handle cannot be hidden: it opens this editor)
         float bw = 130 * density, bh = 40 * density, top = 12 * density, gap = 10 * density;
-        String title = ru() ? "Перетаскивайте кнопки" : "Drag the controls";
+        boolean canHide = selected != null && !"handle".equals(selected);
+        String hideLabel = canHide && hiddenOf(selected) ? (ru() ? "Вернуть" : "Restore")
+                : (ru() ? "Скрыть" : "Hide");
         text.setTextSize(15 * density);
-        float tw = text.measureText(title) + 30 * density;
-        float total = tw + 2 * (bw + gap), left = (getWidth() - total) / 2;
-        RectF t = new RectF(left, top, left + tw, top + bh);
+        float total = 3 * bw + 2 * gap, left = (getWidth() - total) / 2;
+        RectF t = new RectF(left, top, left + bw, top + bh);
+        editHide.set(t);
         editReset.set(t.right + gap, top, t.right + gap + bw, top + bh);
         editDone.set(editReset.right + gap, top, editReset.right + gap + bw, top + bh);
         fill.setStyle(Paint.Style.FILL);
-        fill.setColor(0xe00b1626);
-        c.drawRoundRect(t, 12 * density, 12 * density, fill);
+        fill.setColor(!canHide ? 0xff33495a : hiddenOf(selected) ? 0xff1d7a6a : 0xff6a3a3a);
+        c.drawRoundRect(editHide, 12 * density, 12 * density, fill);
         fill.setColor(0xff6a3a3a);
         c.drawRoundRect(editReset, 12 * density, 12 * density, fill);
         fill.setColor(0xff1d7a6a);
         c.drawRoundRect(editDone, 12 * density, 12 * density, fill);
         text.setColor(Color.WHITE);
-        c.drawText(title, t.centerX(), t.centerY() + 5 * density, text);
+        c.drawText(hideLabel, editHide.centerX(), editHide.centerY() + 5 * density, text);
         c.drawText(ru() ? "Сброс" : "Reset", editReset.centerX(), editReset.centerY() + 5 * density, text);
         c.drawText(ru() ? "Готово" : "Done", editDone.centerX(), editDone.centerY() + 5 * density, text);
         // size bar for the picked control, right under Reset: its left end is half size, the right end double
@@ -1529,20 +1545,6 @@ public class SporeControls extends View {
             text.setColor(Color.WHITE);
             c.drawText((ru() ? "Размер" : "Size") + " " + Math.round(sizeOf(selected) * 100) + "%",
                     editSizeBar.centerX(), editSizeBar.bottom + 17 * density, text);
-            if ("joy".equals(selected)) {
-                // hide the joystick from the layout, or bring it back; in the editor it stays, red when hidden
-                float tw2 = 110 * density, th2 = 36 * density;
-                float tx2 = editSizeBar.centerX() - tw2 / 2;
-                float ty2 = editSizeBar.bottom + 32 * density;  // under the size, away from the other controls
-                editJoyToggle.set(tx2, ty2, tx2 + tw2, ty2 + th2);
-                fill.setStyle(Paint.Style.FILL);
-                fill.setColor(joyHidden() ? 0xff1d7a6a : 0xff6a3a3a);
-                c.drawRoundRect(editJoyToggle, 12 * density, 12 * density, fill);
-                text.setTextSize(13 * density);
-                text.setColor(Color.WHITE);
-                c.drawText(joyHidden() ? (ru() ? "Вернуть" : "Restore") : (ru() ? "Скрыть" : "Hide"),
-                        editJoyToggle.centerX(), editJoyToggle.centerY() + 5 * density, text);
-            }
         } else {
             text.setTextSize(13 * density);
             text.setColor(0xffc8d8e8);
@@ -1732,6 +1734,10 @@ public class SporeControls extends View {
         if (actions.isEmpty() || editLayout) return;
         for (int i = 0; i < actions.size() && i < SLOT_IDS.length; ++i) {
             Button b = actions.get(i);
+            if (hiddenOf(SLOT_IDS[i])) {
+                b.rect.setEmpty();  // hidden in the layout editor: neither drawn nor tappable
+                continue;
+            }
             float f = sizeOf(SLOT_IDS[i]);
             float r = 29 * density * scale() * f;
             text.setTextSize(16 * density * scale() * f);

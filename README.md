@@ -18,8 +18,9 @@ phone with the Vulkan 1.1 / DXVK 1.9.2b path.
 - Editor **Undo** / **Redo** buttons work (Ctrl+Z / Ctrl+Y sent over separate frames).
 - **Cursor** mode (renamed from Touchpad): dragging moves a pointer and a joystick in the bottom right corner nudges
   it; **Direct** mode acts where the finger lands. Editors always use the cursor.
-- The layout editor includes the joystick: tap it and **Hide** keeps it off the screen (red in the editor),
-  **Restore** brings it back. **Joystick speed** sets how fast it moves the cursor.
+- Layout editor: **Hide** / **Restore** turns any control off (the joystick, stick, jump and action buttons); a
+  hidden control is filled red in the editor and never drawn in game. **Reset** brings them all back. **Cursor
+  joystick sensitivity** sets how fast the joystick moves the cursor.
 
 ## Source
 

@@ -73,12 +73,16 @@ public class SporeStick extends View {
         return super.dispatchTouchEvent(e);
     }
 
+    private boolean hidden(String id) {
+        return prefs.getBoolean("ui_hide_" + id, false);  // hidden in the layout editor
+    }
+
     private boolean inStick(float x, float y) {
-        return Math.hypot(x - cx, y - cy) < radius * 1.4f;
+        return !hidden("stick") && Math.hypot(x - cx, y - cy) < radius * 1.4f;
     }
 
     private boolean inJump(float x, float y) {
-        return Math.hypot(x - jumpX, y - jumpY) < jumpR * 1.3f;
+        return !hidden("jump") && Math.hypot(x - jumpX, y - jumpY) < jumpR * 1.3f;
     }
 
     @Override
@@ -171,16 +175,20 @@ public class SporeStick extends View {
     @Override
     protected void onDraw(Canvas c) {
         if (editing) return;  // the editor draws the stick's outline itself
+        if (!hidden("stick")) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(argb(0x50, 0x0a1a2a));
+            c.drawCircle(cx, cy, radius, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2 * density);
+            paint.setColor(argb(0xa0, TEAL));
+            c.drawCircle(cx, cy, radius, paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(argb(stickPointer >= 0 ? 0xd0 : 0x90, TEAL));
+            c.drawCircle(knobX, knobY, radius * 0.42f, paint);
+        }
+        if (hidden("jump")) return;
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(argb(0x50, 0x0a1a2a));
-        c.drawCircle(cx, cy, radius, paint);
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(2 * density);
-        paint.setColor(argb(0xa0, TEAL));
-        c.drawCircle(cx, cy, radius, paint);
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(argb(stickPointer >= 0 ? 0xd0 : 0x90, TEAL));
-        c.drawCircle(knobX, knobY, radius * 0.42f, paint);
         paint.setColor(argb(jumpPointer >= 0 ? 0xd0 : 0x70, jumpPointer >= 0 ? TEAL : 0x0a1a2a));
         c.drawCircle(jumpX, jumpY, jumpR, paint);
         paint.setStyle(Paint.Style.STROKE);
